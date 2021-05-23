@@ -134,8 +134,8 @@ void* writer(void* args)
         printf("ERROR! more than one processes in their critical sections\n");
         kill(getpid(), SIGKILL);
     }
-    printf("I am the %d thread!\n",thread_num);
-    sprintf(shared->mtext,"I am the %d thread!",thread_num);
+    printf("I am the %d writer!\n",thread_num);
+    sprintf(shared->mtext,"I am the %d writer!",thread_num);
     counter--;
     pthread_mutex_lock(&written_lock);
     shared->written = 1;
