@@ -10,64 +10,47 @@
 
 #include "alg.8-0-shmdata.h"
 
-
-void* reader(void* args)
-{
+void* reader(void* args){
     void *shmptr = NULL;
     struct shared_struct *shared;
     int shmid;
-
-    int thread_num = *((int*)args);
- 
+    int thread_num = *((int*)args);/* 读取传入的参数，作为线程号 */
     
+    /* 获取共享内存的id */
     shmid = shmget((key_t)key, TEXT_NUM*sizeof(struct shared_struct), 0666|PERM);
     if (shmid == -1) {
         ERR_EXIT("shread: shmget()");
     }
-
+    /* 利用id与共享内存建立连接 */
     shmptr = shmat(shmid, 0, 0);
     if(shmptr == (void *)-1) {
         ERR_EXIT("shread: shmat()");
     }
-    //printf("%*sshmread: shmid = %d\n", 30, " ", shmid);    
-    //printf("%*sshmread: shared memory attached at %p\n", 30, " ", shmptr);
-    //printf("%*sshmread process ready ...\n", 30, " ");
-    
+    /* 获取共享内存指针 */
     shared = (struct shared_struct *)shmptr;
     
-
-    // while (1) {
-    //     while (shared->written == 0) {
-    //         sleep(1); /* message not ready, waiting ... */
-    //     }
-
-    //     printf("%*sI am reader %ld, writer wrote: %s\n", 30, " ",thread_num, shared->mtext);
-    //     shared->written = 0;
-    //     if (strncmp(shared->mtext, "end", 3) == 0) {
-    //         break;
-    //     }
-    // } /* it is not reliable to use shared->written for process synchronization */
-     
+    /*每个读线程会读取writer_num次共享内存中的内容，
+    即每次新的写线程写入信息之后，每个读线程都会从中读取内容*/
    for (int i = 0;i < writer_num;i++){
        pthread_mutex_lock(&read_cnt_lock);
+       /* 所有读线程读取完毕*/ 
         if(read_cnt == reader_num){
             read_cnt = 0;
-            pthread_mutex_lock(&written_lock);
-            shared->written = 0;
-            pthread_mutex_unlock(&written_lock);
+            pthread_mutex_lock(&flag_lock);
+            shared->flag = 0;/*表明写线程可以进入共享内存*/
+            pthread_mutex_unlock(&flag_lock);
         }
-        read_cnt++;
+        read_cnt++;/*一个读线程进入共享内存之后read_cnt会加一*/
         pthread_mutex_unlock(&read_cnt_lock);
         
-        while (shared->written == 0) {
-            sleep(1); /* message not ready, waiting ... */
+        while (shared->flag == 0) {
+            sleep(1); /* 写进程在共享内存中，需等待 */
         }
-
+        /* 读取信息 */
         printf("%*sI am reader %d, writer wrote: %s\n", 30, " ",thread_num, shared->mtext);
-        sleep(2);
+        sleep(2);/* 等待其他读线程读取完毕，否则该线程可能会重复读取 */
    }
-
-
+    /* 断开与共享内存的连接 */
    if (shmdt(shmptr) == -1) {
         ERR_EXIT("shmread: shmdt()");
    }
@@ -78,35 +61,25 @@ void* reader(void* args)
 
 
  
-void* writer(void* args)
-{
+void* writer(void* args){
     void *shmptr = NULL;
     struct shared_struct *shared = NULL;
     int shmid;
-    int thread_num = *((int*)args);
-
-    int lev,k,j;//
-
-    char buffer[BUFSIZ + 1]; /* 8192bytes, saved from stdin */
-
-    //printf("shmwrite: IPC key = %x\n", key);
-
+    int thread_num = *((int*)args);/* 读取传入的参数，作为线程号 */
+    int lev,k,j;
+    /* 获取共享内存的id */
     shmid = shmget((key_t)key, TEXT_NUM*sizeof(struct shared_struct), 0666|PERM);
     if (shmid == -1) {
         ERR_EXIT("shmwite: shmget()");
     }
-
+    /* 利用id与共享内存建立连接 */
     shmptr = shmat(shmid, 0, 0);
     if(shmptr == (void *)-1) {
         ERR_EXIT("shmwrite: shmat()");
     }
-    //printf("shmwrite: shmid = %d\n", shmid);
-    //printf("shmwrite: shared memory attached at %p\n", shmptr);
-    //printf("shmwrite precess ready ...\n");
-    
+    /* 获取共享内存指针 */
     shared = (struct shared_struct *)shmptr;
     
-
     for (lev = 0; lev < writer_num-1; ++lev) { /* there are at least writer_num-1 waiting rooms */
         level[thread_num] = lev;
         waiting[lev] = thread_num;
@@ -126,52 +99,36 @@ void* writer(void* args)
         }
     } 
 
-    /* critical section begin*/
-    while(shared->written == 1){ sleep(1);};
-    //shared->written = 0;
+    /* critical section begin */
+    while(shared->flag == 1){ /* 此时共享内存中有读线程，需要等待 */ 
+        sleep(1);
+    }
     counter++;
     if (counter > 1) {
         printf("ERROR! more than one processes in their critical sections\n");
         kill(getpid(), SIGKILL);
     }
     printf("I am the %d writer!\n",thread_num);
+    /* 写入信息 */
     sprintf(shared->mtext,"I am the %d writer!",thread_num);
     counter--;
-    pthread_mutex_lock(&written_lock);
-    shared->written = 1;
-    pthread_mutex_unlock(&written_lock);
+    /* 将flag置为1表明已写入完毕，读线程可以开始读取内容 */
+    pthread_mutex_lock(&flag_lock);
+    shared->flag = 1;
+    pthread_mutex_unlock(&flag_lock);
     /* critical section end*/
 
+    /* allow other process of level max_num-2 to exit the while loop 
+         and enter his critical section */
     level[thread_num] = -1;
     
-
-    
-    // while (1) {
-    //     while (shared->written == 1) {
-    //         sleep(1); /* message not read yet, waiting ... */ 
-    //     }
- 
-    //     printf("Enter some text: ");
-    //     fgets(buffer, BUFSIZ, stdin);
-    //     strncpy(shared->mtext, buffer, TEXT_SIZE);
-    //     printf("shared buffer: %s\n",shared->mtext);
-    //     shared->written = 1;  /* message prepared */
- 
-    //     if(strncmp(buffer, "end", 3) == 0) {
-    //         break;
-    //     }
-    // }
-       /* detach the shared memory */
+     /* detach the shared memory */
     if(shmdt(shmptr) == -1) {
         ERR_EXIT("shmwrite: shmdt()");
     }
 
-//    sleep(1);
     pthread_exit(EXIT_SUCCESS);
 }
-
-
-
 
 int main(int argc, char *argv[])
 {
@@ -179,17 +136,19 @@ int main(int argc, char *argv[])
     int shmid; /* shared memory ID */
     void *shmptr;
     struct shared_struct *shared; /* structured shm */
-    char pathname[80], key_str[10], cmd_str[80];
+    char pathname[80],  cmd_str[80];
     int shmsize, ret;
 
-    pthread_t wptid[MAX];
-    pthread_t rptid[MAX];
-    int wnum[MAX];
-    int rnum[MAX];
+    pthread_t wptid[MAX];/*存储写线程的ptid */
+    pthread_t rptid[MAX];/* 存储读线程的ptid */
+    int wnum[MAX];/*存储写线程的编号 */
+    int rnum[MAX];/* 存储读线程的编号 */
 
+    /* 互斥锁初始化 */
     pthread_mutex_init(&read_cnt_lock,NULL);
-    pthread_mutex_init(&written_lock,NULL);
+    pthread_mutex_init(&flag_lock,NULL);
 
+    /* 初始化共享内存大小 */
     shmsize = TEXT_NUM*sizeof(struct shared_struct);
     printf("max record number = %d, shm size = %d\n", TEXT_NUM, shmsize);
 
@@ -197,9 +156,10 @@ int main(int argc, char *argv[])
         printf("Usage: ./a.out pathname, number of writer, number of reader\n");
         return EXIT_FAILURE;
     }
+
     strcpy(pathname, argv[1]);
-    sscanf(argv[2],"%d",&writer_num);
-    sscanf(argv[3],"%d",&reader_num);
+    sscanf(argv[2],"%d",&writer_num);/*读取写线程数*/
+    sscanf(argv[3],"%d",&reader_num);/*读取读线程数*/
 
     if(stat(pathname, &fileattr) == -1) {
         ret = creat(pathname, O_RDWR);
@@ -229,26 +189,16 @@ int main(int argc, char *argv[])
     printf("shmcon: shared Memory attached at %p\n", shmptr);
     
     shared = (struct shared_struct *)shmptr;
-    shared->written = 0;
+    shared->flag = 0;/*初始化为0，即先让写线程写入信息，之后读线程才能读出信息*/
 
     sprintf(cmd_str, "ipcs -m | grep '%d'\n", shmid); 
     printf("\n------ Shared Memory Segments ------\n");
     system(cmd_str);
 	
-    if(shmdt(shmptr) == -1) {
-        ERR_EXIT("shmcon: shmdt()");
-    }
-
-    printf("\n------ Shared Memory Segments ------\n");
-    system(cmd_str);
-
-    sprintf(key_str, "%x", key);
-    char *argv1[] = {" ", key_str, 0};
-
     for(int i = 0;i < writer_num;i++){
         wnum[i] = i;
     }
-
+    /* 创建写线程 */
     for(int i = 0;i < writer_num;i++){
         ret = pthread_create(&wptid[i], NULL, &writer, (void *)&wnum[i]);
         if(ret != 0) {
@@ -259,7 +209,7 @@ int main(int argc, char *argv[])
     for(int i = 0;i < reader_num;i++){
         rnum[i] = i;
     }
-
+      /* 创建读线程 */
     for(int i = 0;i < reader_num;i++){
         ret = pthread_create(&rptid[i], NULL, &reader, (void *)&rnum[i]);
         if(ret != 0) {
@@ -267,13 +217,13 @@ int main(int argc, char *argv[])
         }
     }
 
+    /* 等待写线程和读线程的结束 */
     for (int i = 0; i < writer_num; i++) {
         ret = pthread_join(wptid[i], NULL);
         if(ret != 0) {
            perror("pthread_join()");
         }
     }
-
     for (int i = 0; i < reader_num; i++) {
         ret = pthread_join(rptid[i], NULL);
         if(ret != 0) {
@@ -281,44 +231,15 @@ int main(int argc, char *argv[])
         }
     }
 
+    if(shmdt(shmptr) == -1) {
+        ERR_EXIT("shmcon: shmdt()");
+    }
 
-
-
-
-
-
-    // childpid1 = vfork();
-    // if(childpid1 < 0) {
-    //     ERR_EXIT("shmcon: 1st vfork()");
-    // } 
-    // else if(childpid1 == 0) {
-    //     execv("./alg.8-2-shmread.o", argv1); /* call shm_read with IPC key */
-    // }
-    // else {
-    //     childpid2 = vfork();
-    //     if(childpid2 < 0) {
-    //         ERR_EXIT("shmcon: 2nd vfork()");
-    //     }
-    //     else if (childpid2 == 0) {
-    //         execv("./alg.8-3-shmwrite.o", argv1); /* call shmwrite with IPC key */
-    //     }
-    //     else {
-    //         wait(&childpid1);
-    //         wait(&childpid2);
-    //              /* shmid can be removed by any process knewn the IPC key */
-    //         if (shmctl(shmid, IPC_RMID, 0) == -1) {
-    //             ERR_EXIT("shmcon: shmctl(IPC_RMID)");
-    //         }
-    //         else {
-    //             printf("shmcon: shmid = %d removed \n", shmid);
-    //             printf("\n------ Shared Memory Segments ------\n");
-    //             system(cmd_str);
-    //             printf("nothing found ...\n"); 
-    //         }
-    //     }
-    // }
+    printf("\n------ Shared Memory Segments ------\n");
+    system(cmd_str);
+    /* 释放互斥锁 */
     pthread_mutex_destroy(&read_cnt_lock);
-    pthread_mutex_destroy(&written_lock);
+    pthread_mutex_destroy(&flag_lock);
     exit(EXIT_SUCCESS);
 }
 

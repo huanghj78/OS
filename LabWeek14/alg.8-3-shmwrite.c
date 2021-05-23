@@ -57,8 +57,8 @@ void* writer(void* args)
     } 
 
     /* critical section begin*/
-    while(shared->written == 1);
-    shared->written = 0;
+    while(shared->flag == 1);
+    shared->flag = 0;
     counter++;
     if (counter > 1) {
         printf("ERROR! more than one processes in their critical sections\n");
@@ -67,13 +67,13 @@ void* writer(void* args)
     printf("I am the %ld thread!\n",thread_num);
     sprintf(shared->mtext,"I am the %ld thread!",thread_num);
     counter--;
-    shared->written = 1;
+    shared->flag = 1;
     /* critical section end*/
     
 
     
     // while (1) {
-    //     while (shared->written == 1) {
+    //     while (shared->flag == 1) {
     //         sleep(1); /* message not read yet, waiting ... */ 
     //     }
  
@@ -81,7 +81,7 @@ void* writer(void* args)
     //     fgets(buffer, BUFSIZ, stdin);
     //     strncpy(shared->mtext, buffer, TEXT_SIZE);
     //     printf("shared buffer: %s\n",shared->mtext);
-    //     shared->written = 1;  /* message prepared */
+    //     shared->flag = 1;  /* message prepared */
  
     //     if(strncmp(buffer, "end", 3) == 0) {
     //         break;
