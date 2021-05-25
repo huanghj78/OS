@@ -101,7 +101,7 @@ void* writer(void* args){
 
     /* critical section begin */
     while(shared->flag == 1){ /* 此时共享内存中有读线程，需要等待 */ 
-        sleep(1);
+        //sleep(1);
     }
     counter++;
     if (counter > 1) {
@@ -111,7 +111,8 @@ void* writer(void* args){
     //printf("I am the %d writer!\n",thread_num);
     /* 写入信息 */
     printf("I am the %d writer! Input the message:",thread_num);
-    scanf("%s",shared->mtext);
+    //scanf("%s",shared->mtext);
+    fgets(shared->mtext,MAX,stdin);
     //sprintf(shared->mtext,"I am the %d writer!",thread_num);
     counter--;
     /* 将flag置为1表明已写入完毕，读线程可以开始读取内容 */
