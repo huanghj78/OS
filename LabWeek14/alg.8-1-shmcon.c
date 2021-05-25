@@ -48,7 +48,7 @@ void* reader(void* args){
         }
         /* 读取信息 */
         printf("%*sI am reader %d, writer wrote: %s\n", 30, " ",thread_num, shared->mtext);
-        sleep(2);/* 等待其他读线程读取完毕，否则该线程可能会重复读取 */
+        sleep(1);/* 等待其他读线程读取完毕，否则该线程可能会重复读取 */
    }
     /* 断开与共享内存的连接 */
    if (shmdt(shmptr) == -1) {
@@ -108,9 +108,11 @@ void* writer(void* args){
         printf("ERROR! more than one processes in their critical sections\n");
         kill(getpid(), SIGKILL);
     }
-    printf("I am the %d writer!\n",thread_num);
+    //printf("I am the %d writer!\n",thread_num);
     /* 写入信息 */
-    sprintf(shared->mtext,"I am the %d writer!",thread_num);
+    printf("I am the %d writer! Input the message:",thread_num);
+    scanf("%s",shared->mtext);
+    //sprintf(shared->mtext,"I am the %d writer!",thread_num);
     counter--;
     /* 将flag置为1表明已写入完毕，读线程可以开始读取内容 */
     pthread_mutex_lock(&flag_lock);
