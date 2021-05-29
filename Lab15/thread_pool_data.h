@@ -6,7 +6,7 @@
 #define busy 2 /* 线程忙碌状态，表示当前线程正在执行任务 */
 #define true 1
 #define false 0
-#define task_number 15 /* 所需执行的任务数，用于测试 */
+
 
 /* 此结构体作为被执行的任务函数的参数，其中arg为任务函数本身所需的参数，num为执行该任务的线程的编号，用于测试
  */
@@ -33,6 +33,14 @@ typedef struct threadpool_t {
   thread_info *thread_queue;     /* 线程就绪队列 */
   pthread_t adjust_tid;          /* 管理线程dtid */
   threadpool_task_t *task_queue; /* 任务等待队列 */
+  pthread_mutex_t thread_lock;  /* 用于工作线程队列的互斥锁 */
+  pthread_mutex_t task_lock;    /* 用于任务队列的互斥锁 */
+  pthread_mutex_t count_lock;   /* 用于count的互斥锁 */
+  sem_t empty_slots;     /* 任务队列空位置 */
+  sem_t count_mutex;    /* 实现count的互斥 */
+  sem_t thread_mutex;   /* 实现线程队列的互斥 */
+
+
 
   int thread_num;   /* 线程池的线程数 */
   int busy_thr_num; /* 忙状态线程个数 */
