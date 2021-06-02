@@ -12,6 +12,7 @@
 #include "thread_pool_data.h"
 
 threadpool_t *pool = NULL;
+pthread_t ptid[999999];
 
 void *threadpool_thread(void *);  //线程池中工作线程要做的事情。
 void *adjust_thread();            //管理者线程要做的事情。
@@ -116,14 +117,13 @@ threadpool_t *threadpool_create(int num, int task_num, int queue_capacity) {
   for (i = 0; i < num; i++) {
     pthread_create(&(pool->thread_queue[i].ptid), NULL, threadpool_thread,
                    &index[i]); /* pool指向当前线程池 */
+    ptid[i] = pool->thread_queue[i].ptid;
     /* 十六进程打印线程id及其编号 */
     printf("start thread 0x%x  number is %d\n",
            (unsigned int)pool->thread_queue[i].ptid, index[i]);
   }
   /* 启动管理线程 */
   pthread_create(&(pool->adjust_tid), NULL, adjust_thread, (void *)pool);
-  // pthread_detach(pool->adjust_tid);
-  // //把管理线程设置为分离的，系统帮助回收资源。
   printf("管理线程开启\n");
   printf("***********************************************************\n");
 
@@ -154,10 +154,10 @@ void *threadpool_thread(void *arg) {
       }
     }
     /* 将要被执行的任务从等待队列中出队 */
-    //pthread_mutex_lock(&(pool->thread_lock));
     sem_wait(&(pool->thread_mutex));
     /* 若队列中有任务 */
     if(pool->task_queue_size > 0){
+      //sem_post(&(pool->empty_slots));
       task.function = pool->task_queue[pool->task_queue_front].function;
       task.arg = pool->task_queue[pool->task_queue_front].arg;
       pool->task_queue_size--;
@@ -166,12 +166,10 @@ void *threadpool_thread(void *arg) {
         pool->task_queue_capacity;  //队头指针向后移动一位。
     }
     else{
-      //pthread_mutex_unlock(&(pool->thread_lock));
       sem_post(&(pool->thread_mutex));
       pool->thread_queue[index].stat = ready;
       continue;
     }
-    //pthread_mutex_unlock(&(pool->thread_lock));
     sem_post(&(pool->thread_mutex));
 
     /* 执行任务 */
@@ -184,6 +182,7 @@ void *threadpool_thread(void *arg) {
     (task.function)(args);
 
     /* 任务结束处理 */
+    sem_post(&(pool->empty_slots));
     printf("=== thread %d end working ===\n", num);
     //usleep(10000);
     //sleep(1);
@@ -192,11 +191,8 @@ void *threadpool_thread(void *arg) {
     /* 工作线程重新回到就绪队列，等待新任务 */
     ret = false;
     while (ret == false) {
-      //pthread_mutex_lock(&(pool->thread_lock));
       sem_wait(&(pool->thread_mutex));
       ret = thread_enqueue(pool->thread_queue[index], &index);
-      sem_post(&(pool->empty_slots));
-      //pthread_mutex_unlock(&(pool->thread_lock));
       sem_post(&(pool->thread_mutex));
     }
     pool->thread_queue[index].stat = ready;
@@ -211,10 +207,8 @@ void *adjust_thread() {
     if (pool->task_queue_size > 0) {
       while (1) {
         /* 当线程就绪队列中没有线程的时候则循环阻塞，直到有就绪线程 */
-        //pthread_mutex_lock(&(pool->thread_lock));
         sem_wait(&(pool->thread_mutex));
         ret = thread_dequeue();
-        //pthread_mutex_unlock(&(pool->thread_lock));
         sem_post(&(pool->thread_mutex));
         if (ret == true) break;
         sleep(1);
@@ -269,7 +263,6 @@ int threadpool_add(void *(*function)(func_arg), void *arg) {
   }
 
   /* 添加任务到任务队列里 */
-  //pthread_mutex_lock(&(pool->task_lock));
   sem_wait(&(pool->empty_slots));
   pool->task_queue[pool->task_queue_rear].function = function;
   pool->task_queue[pool->task_queue_rear].arg = arg;
@@ -293,10 +286,8 @@ void *process(func_arg args) {
       "task %d is end ------\n",
       *(int *)arg);
   /* 对与任务完成数目的计算需要进行互斥以免产生条件竞争 */
-  //pthread_mutex_lock(&(pool->count_lock));
-  sem_wait(&(pool->count_mutex));
+ sem_wait(&(pool->count_mutex));
   pool->count++; /* 任务指向完毕，计数加一 */
-  //pthread_mutex_unlock(&(pool->count_lock));
   sem_post(&(pool->count_mutex));
 }
 
@@ -348,5 +339,8 @@ int main() {
   pool->shutdown = true;
   printf("Waiting for all the threads end...\n");
   sleep(2); /* 等待线程池的关闭 */
+  for(int i = 0;i < pool->thread_num;i++){
+    pthread_join(ptid[i],NULL);
+  }
   return 0;
 }
